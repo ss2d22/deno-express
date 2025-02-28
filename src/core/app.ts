@@ -5,7 +5,7 @@
  */
 
 import methods from "./methods.ts";
-import { createRouter, Router } from "../router/router.ts";
+import { createRouter, Router, NextFunction } from "../router/router.ts";
 
 /**
  * Configuration options for the application.
@@ -81,7 +81,8 @@ export interface App {
  */
 export type RouteHandler = (
   req: Request,
-  res: ResponseContext
+  res: ResponseContext,
+  next?: NextFunction
 ) => Promise<void> | void;
 
 /**
@@ -155,8 +156,8 @@ export function createApp(options: AppOptions = {}): App {
     settings,
 
     listen(port: number, callback?: () => void): void {
-      Deno.serve({ port }, async (request) => {
-        return await app.handle(request);
+      Deno.serve({ port }, (request) => {
+        return app.handle(request);
       });
 
       if (callback) callback();

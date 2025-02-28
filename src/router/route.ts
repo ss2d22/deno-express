@@ -8,6 +8,7 @@
 import methods from "../core/methods.ts";
 import { createLayer, Layer } from "./layer.ts";
 import { RouteHandler, ResponseContext } from "../core/app.ts";
+import { NextFunction } from "./router.ts";
 
 /**
  * Route type definition
@@ -23,7 +24,11 @@ export interface Route {
   methods: Record<string, boolean>;
 
   /** Dispatch a request to this route's handlers */
-  dispatch: (req: Request, res: ResponseContext) => Promise<void>;
+  dispatch: (
+    req: Request,
+    res: ResponseContext,
+    next: NextFunction
+  ) => Promise<void> | void;
 
   /** Generic method for adding handlers for a specific HTTP method */
   addMethod: (method: string, ...handlers: RouteHandler[]) => Route;
@@ -56,18 +61,39 @@ export function createRoute(path: string): Route {
     methods: methodsMap,
 
     /**
-     * Dispatch a request to this route's handlers
+     * Dispatch a request through all handlers in this route's stack
      * @param {Request} req - The incoming request
      * @param {ResponseContext} res - The response context
-     * @returns {Promise<void>}
+     * @param {NextFunction} parentNext - The parent next function (router level)
+     * @returns {Promise<void> | void}
      */
-    async dispatch(req: Request, res: ResponseContext): Promise<void> {
+    dispatch(
+      req: Request,
+      res: ResponseContext,
+      parentNext: NextFunction
+    ): Promise<void> | void {
       if (stack.length === 0) {
+        parentNext();
         return;
       }
 
-      // TODO: run through middleware chain, instead of just executing the first handler
-      await stack[0].handleRequest(req, res);
+      let idx = 0;
+
+      const next = () => {
+        if (idx < stack.length) {
+          const layer = stack[idx++];
+          try {
+            return layer.handleRequest(req, res, next);
+          } catch (err) {
+            console.error("Route handler error:", err);
+            throw err;
+          }
+        } else {
+          parentNext();
+        }
+      };
+
+      return next();
     },
 
     /**
@@ -78,7 +104,11 @@ export function createRoute(path: string): Route {
      */
     addMethod(method: string, ...handlers: RouteHandler[]): Route {
       handlers.forEach((handler) => {
-        const layer = createLayer("/", handler);
+        const wrappedHandler: RouteHandler = (req, res, next) => {
+          return handler(req, res, next);
+        };
+
+        const layer = createLayer("/", wrappedHandler);
         layer.method = method;
         methodsMap[method] = true;
         stack.push(layer);

@@ -8,6 +8,7 @@
 
 import { RouteHandler, ResponseContext } from "../core/app.ts";
 import { Route } from "./route.ts";
+import { NextFunction } from "./router.ts";
 
 /**
  * Layer type definition that represents a handler for a specific path
@@ -29,7 +30,11 @@ export interface Layer {
   match: (path: string) => boolean;
 
   /** Handle a request with this layer's handler */
-  handleRequest: (req: Request, res: ResponseContext) => Promise<void>;
+  handleRequest: (
+    req: Request,
+    res: ResponseContext,
+    next: NextFunction
+  ) => Promise<void> | void;
 }
 
 /**
@@ -41,11 +46,9 @@ function normalizePath(path: string): string {
   if (!path.startsWith("/")) {
     path = "/" + path;
   }
-  
   if (path.length > 1 && path.endsWith("/")) {
     path = path.slice(0, -1);
   }
-  
   return path;
 }
 
@@ -56,8 +59,7 @@ function normalizePath(path: string): string {
  * @returns {Layer} The layer object with methods for matching and handling
  */
 export function createLayer(path: string, handler: RouteHandler): Layer {
-  const normalizedPath = normalizePath(path);
-  
+    const normalizedPath = normalizePath(path);
   const layer: Layer = {
     path: normalizedPath,
     handle: handler,
@@ -79,19 +81,21 @@ export function createLayer(path: string, handler: RouteHandler): Layer {
      * Handle a request with this layer's handler
      * @param {Request} req - The incoming request
      * @param {ResponseContext} res - The response context
-     * @returns {Promise<void>}
+     * @param {NextFunction} next - The next function for middleware chaining
+     * @returns {Promise<void> | void}
      */
-    async handleRequest(req: Request, res: ResponseContext): Promise<void> {
+    handleRequest(
+      req: Request,
+      res: ResponseContext,
+      next: NextFunction
+    ): Promise<void> | void {
       try {
-        const result = this.handle(req, res);
-        if (result instanceof Promise) {
-          await result;
-        }
+        return this.handle(req, res, next);
       } catch (err) {
         console.error("Layer error:", err);
         throw err;
       }
-    }
+    },
   };
 
   return layer;

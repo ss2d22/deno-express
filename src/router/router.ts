@@ -37,6 +37,11 @@ export interface Router {
 }
 
 /**
+ * Next function type for middleware chaining
+ */
+export type NextFunction = () => void;
+
+/**
  * Gets the pathname from the request URL
  * @param {Request} req - The request object
  * @returns {string} The URL pathname or "/" on error
@@ -117,7 +122,11 @@ export function createRouter(options: RouterOptions = {}): Router {
      */
     route(path: string): Route {
       const route = createRoute(path);
-      const layer = createLayer(path, route.dispatch.bind(route));
+      const layer = createLayer(path, (req, res, next) => {
+        if (route.dispatch) {
+          return route.dispatch(req, res, next || (() => {}));
+        }
+      });
 
       layer.route = route;
       stack.push(layer);
@@ -130,49 +139,67 @@ export function createRouter(options: RouterOptions = {}): Router {
      * @param {Request} req - The incoming request object
      * @returns {Promise<Response>} A response object
      */
-    async handle(req: Request): Promise<Response> {
+    handle(req: Request): Promise<Response> {
       const method = req.method.toLowerCase();
       const path = getPathname(req);
+      const responseContext = createResponseContext();
 
-      let match: boolean | Error;
-      let idx = 0;
+      return new Promise((resolve) => {
+        let idx = 0;
 
-      while (idx < stack.length) {
-        const layer = stack[idx++];
-        match = matchLayer(layer, path);
+        const next: NextFunction = () => {
+          let match: boolean | Error;
+          let layer: Layer | undefined;
+          let route: Route | undefined;
 
-        if (match !== true) {
-          continue;
-        }
+          while (idx < stack.length) {
+            layer = stack[idx++];
+            match = matchLayer(layer, path);
 
-        const route = layer.route;
+            if (match !== true) {
+              continue;
+            }
 
-        if (!route) {
-          // TODO: handle non-route layers (like middleware)
-          continue;
-        }
+            route = layer.route;
 
-        if (route.methods[method]) {
-          const responseContext = createResponseContext();
+            if (!route) {
+              // TODO: handle non-route leyrs (like middleware)
+              continue;
+            }
 
-          await route.dispatch(req, responseContext);
+            if (route.methods[method]) {
+              try {
+                Promise.resolve(layer.handleRequest(req, responseContext, next))
+                  .then(() => {
+                    if (responseContext._response) {
+                      resolve(responseContext._response);
+                    }
+                  })
+                  .catch((err) => {
+                    console.error("Route error:", err);
+                    resolve(
+                      new Response("Internal Server Error", { status: 500 })
+                    );
+                  });
 
-          if (responseContext._response) {
-            return responseContext._response;
+                return; 
+              } catch (err) {
+                console.error("Route error:", err);
+                resolve(new Response("Internal Server Error", { status: 500 }));
+                return;
+              }
+            }
           }
 
-          return new Response("OK", { status: 200 });
-        } else {
-          return new Response("Method Not Allowed", {
-            status: 405,
-            headers: {
-              Allow: Object.keys(route.methods).join(", ").toUpperCase(),
-            },
-          });
-        }
-      }
+          if (!responseContext._response) {
+            resolve(new Response("Not Found", { status: 404 }));
+          } else {
+            resolve(responseContext._response);
+          }
+        };
 
-      return new Response("Not Found", { status: 404 });
+        next();
+      });
     },
   };
 
