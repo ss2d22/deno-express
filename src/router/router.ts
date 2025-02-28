@@ -37,6 +37,68 @@ export interface Router {
 }
 
 /**
+ * Gets the pathname from the request URL
+ * @param {Request} req - The request object
+ * @returns {string} The URL pathname or "/" on error
+ */
+function getPathname(req: Request): string {
+  try {
+    return new URL(req.url).pathname;
+  } catch (err) {
+    console.error("Error parsing URL:", err);
+    return "/";
+  }
+}
+
+/**
+ * Attempts to match a layer against a path
+ * @param {Layer} layer - The layer to match
+ * @param {string} path - The path to match against
+ * @returns {boolean|Error} true if matched, false or Error otherwise
+ */
+function matchLayer(layer: Layer, path: string): boolean | Error {
+  try {
+    return layer.match(path);
+  } catch (err) {
+    return err instanceof Error ? err : new Error(String(err));
+  }
+}
+
+/**
+ * Creates a response context for handling responses
+ */
+function createResponseContext(): ResponseContext {
+  return {
+    statusCode: 200,
+    status(code: number) {
+      this.statusCode = code;
+      return this;
+    },
+    async send(body: string) {
+      await Promise.resolve();
+
+      this._response = new Response(body, {
+        status: this.statusCode || 200,
+        headers: this.headers,
+      });
+      return this._response;
+    },
+    async json(body: unknown) {
+      await Promise.resolve();
+
+      this.headers.set("Content-Type", "application/json");
+      this._response = new Response(JSON.stringify(body), {
+        status: this.statusCode || 200,
+        headers: this.headers,
+      });
+      return this._response;
+    },
+    headers: new Headers(),
+    _response: null,
+  };
+}
+
+/**
  * Creates a router function for managing routes and handling requests
  * @param {RouterOptions} [options={}] - Optional configuration options
  * @returns {Router} The router object with methods for route management
@@ -70,51 +132,43 @@ export function createRouter(options: RouterOptions = {}): Router {
      */
     async handle(req: Request): Promise<Response> {
       const method = req.method.toLowerCase();
-      const url = new URL(req.url);
-      const pathname = url.pathname;
+      const path = getPathname(req);
 
-      for (const layer of stack) {
-        if (layer.match(pathname) && layer.route) {
-          const route = layer.route;
+      let match: boolean | Error;
+      let idx = 0;
 
-          if (route.methods[method]) {
-            const responseContext: ResponseContext = {
-              statusCode: 200,
-              status(code: number) {
-                this.statusCode = code;
-                return this;
-              },
-              async send(body: string) {
-                await Promise.resolve();
+      while (idx < stack.length) {
+        const layer = stack[idx++];
+        match = matchLayer(layer, path);
 
-                this._response = new Response(body, {
-                  status: this.statusCode || 200,
-                  headers: this.headers,
-                });
-                return this._response;
-              },
-              async json(body: unknown) {
-                await Promise.resolve();
+        if (match !== true) {
+          continue;
+        }
 
-                this.headers.set("Content-Type", "application/json");
-                this._response = new Response(JSON.stringify(body), {
-                  status: this.statusCode || 200,
-                  headers: this.headers,
-                });
-                return this._response;
-              },
-              headers: new Headers(),
-              _response: null,
-            };
+        const route = layer.route;
 
-            await route.dispatch(req, responseContext);
+        if (!route) {
+          // TODO: handle non-route layers (like middleware)
+          continue;
+        }
 
-            if (responseContext._response) {
-              return responseContext._response;
-            }
+        if (route.methods[method]) {
+          const responseContext = createResponseContext();
 
-            return new Response("OK", { status: 200 });
+          await route.dispatch(req, responseContext);
+
+          if (responseContext._response) {
+            return responseContext._response;
           }
+
+          return new Response("OK", { status: 200 });
+        } else {
+          return new Response("Method Not Allowed", {
+            status: 405,
+            headers: {
+              Allow: Object.keys(route.methods).join(", ").toUpperCase(),
+            },
+          });
         }
       }
 

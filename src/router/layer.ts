@@ -33,14 +33,33 @@ export interface Layer {
 }
 
 /**
+ * Normalizes a path by ensuring it starts with a / and has no trailing /
+ * @param {string} path - The path to normalize
+ * @returns {string} The normalized path
+ */
+function normalizePath(path: string): string {
+  if (!path.startsWith("/")) {
+    path = "/" + path;
+  }
+  
+  if (path.length > 1 && path.endsWith("/")) {
+    path = path.slice(0, -1);
+  }
+  
+  return path;
+}
+
+/**
  * Creates a new layer function for handling route matching and request handling
  * @param {string} path - The path pattern to match
  * @param {RouteHandler} handler - The request handler function
  * @returns {Layer} The layer object with methods for matching and handling
  */
 export function createLayer(path: string, handler: RouteHandler): Layer {
+  const normalizedPath = normalizePath(path);
+  
   const layer: Layer = {
-    path,
+    path: normalizedPath,
     handle: handler,
     method: undefined,
     route: undefined,
@@ -51,8 +70,9 @@ export function createLayer(path: string, handler: RouteHandler): Layer {
      * @returns {boolean} True if the path matches, false otherwise
      */
     match(requestPath: string): boolean {
+      const normalizedRequestPath = normalizePath(requestPath);
       // TODO: handle path patterns, params, etc.
-      return this.path === requestPath || this.path === "*";
+      return this.path === normalizedRequestPath || this.path === "*";
     },
 
     /**
@@ -71,7 +91,7 @@ export function createLayer(path: string, handler: RouteHandler): Layer {
         console.error("Layer error:", err);
         throw err;
       }
-    },
+    }
   };
 
   return layer;

@@ -9,20 +9,35 @@ import express from "../core/express.ts";
 const app = express();
 
 app.get("/", async (_req, res) => {
-  await res.status(200).send("Hello World!");
+  await res.send("Hello world from /");
+});
+
+app.get("/2", async (_req, res) => {
+  await res.send("Hello world from /2");
+});
+
+app.post("/post", async (_req, res) => {
+  await res.send("Data from post :)");
+});
+
+app.get("/greet", async (req, res) => {
+  const url = new URL(req.url);
+  const name = url.searchParams.get("name") || "Guest";
+  await res.send(`Hello, ${name}!`);
 });
 
 app.get("/json", async (_req, res) => {
   await res.json({
-    message: "Hello World!",
+    message: "This is JSON data",
     timestamp: new Date().toISOString(),
   });
 });
 
-app.get("/echo", async (req, res) => {
-  const url = new URL(req.url);
-  const message = url.searchParams.get("message") || "No message provided";
-  await res.send(`You said: ${message}`);
+app.get("/created", async (_req, res) => {
+  await res.status(201).send("Resource created successfully");
 });
 
-app.listen(3000, () => console.log("Example app listening on port 3000!"));
+console.log("Starting enhanced server on port 3000");
+app.listen(3000, () =>
+  console.log("Enhanced server running on http://localhost:3000")
+);
