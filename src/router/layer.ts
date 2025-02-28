@@ -26,6 +26,9 @@ export interface Layer {
   /** The associated Route object (if this is a route path layer) */
   route?: Route;
 
+  /** Layer name (for middleware identification) */
+  name?: string;
+
   /** Check if this layer matches the given path */
   match: (path: string) => boolean;
 
@@ -59,12 +62,16 @@ function normalizePath(path: string): string {
  * @returns {Layer} The layer object with methods for matching and handling
  */
 export function createLayer(path: string, handler: RouteHandler): Layer {
-    const normalizedPath = normalizePath(path);
+  const normalizedPath = normalizePath(path);
+
+  const handlerName = handler.name || "<anonymous>";
+
   const layer: Layer = {
     path: normalizedPath,
     handle: handler,
     method: undefined,
     route: undefined,
+    name: handlerName,
 
     /**
      * Check if this layer matches the given path
@@ -73,8 +80,20 @@ export function createLayer(path: string, handler: RouteHandler): Layer {
      */
     match(requestPath: string): boolean {
       const normalizedRequestPath = normalizePath(requestPath);
-      // TODO: handle path patterns, params, etc.
-      return this.path === normalizedRequestPath || this.path === "*";
+
+      if (this.route === undefined) {
+        return true;
+      }
+
+      if (this.route && this.route.path === normalizedRequestPath) {
+        return true;
+      }
+
+      if (this.path === "*") {
+        return true;
+      }
+
+      return false;
     },
 
     /**

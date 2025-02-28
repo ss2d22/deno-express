@@ -1,11 +1,12 @@
 /**
  * @file app.ts
- * @description Defines the application structure, implements the core application interface with HTTP method handlers.
+ * @description Defines the application structure
  * @author Sriram Sundar
  */
 
 import methods from "./methods.ts";
 import { createRouter, Router, NextFunction } from "../router/router.ts";
+import { init } from "../middleware/index.ts";
 
 /**
  * Configuration options for the application.
@@ -25,6 +26,8 @@ export interface App {
   _router?: Router;
   /** Application settings and configuration */
   settings: Record<string, unknown>;
+  /** Response extensions for enhancing the response context */
+  responseExtensions?: Record<string, unknown>;
 
   /**
    * Starts the HTTP server on the specified port.
@@ -72,6 +75,16 @@ export interface App {
    */
   delete: (path: string, ...handlers: RouteHandler[]) => App;
 
+  /**
+   * Initialize the router if it doesn't exist
+   */
+  lazyrouter: () => void;
+
+  /**
+   * Initialize the application
+   */
+  init: () => void;
+
   /** other HTTP methods */
   [key: string]: unknown;
 }
@@ -118,6 +131,9 @@ export interface ResponseContext {
 
   /** The created Response object, if any */
   _response: Response | null;
+
+  /** Additional properties by response extensions */
+  [key: string]: unknown;
 }
 
 /**
@@ -129,10 +145,19 @@ export function createApp(options: AppOptions = {}): App {
   let router: Router | undefined = undefined;
   const settings: Record<string, unknown> = {};
 
+  const responseExtensions: Record<string, unknown> = {
+    // Here we can define additional methods for the response
+    customSend: (body: string) => {
+      console.log("wow,", body);
+      return Promise.resolve(new Response(body));
+    },
+  };
+
   const createMethodHandler = (method: string) => {
     return function (path: string, ...handlers: RouteHandler[]): App {
+      app.lazyrouter();
       if (!router) {
-        router = createRouter(options);
+        throw new Error("Router initialization failed");
       }
 
       const route = router.route(path);
@@ -154,8 +179,23 @@ export function createApp(options: AppOptions = {}): App {
     },
 
     settings,
+    responseExtensions,
+
+    lazyrouter() {
+      if (!router) {
+        router = createRouter(options);
+
+        router.use(init(app));
+      }
+    },
+
+    init() {
+     
+    },
 
     listen(port: number, callback?: () => void): void {
+      this.lazyrouter();
+
       Deno.serve({ port }, (request) => {
         return app.handle(request);
       });
@@ -164,8 +204,10 @@ export function createApp(options: AppOptions = {}): App {
     },
 
     async handle(req: Request): Promise<Response> {
+      this.lazyrouter();
+
       if (!router) {
-        router = createRouter(options);
+        return new Response("Router initialization failed", { status: 500 });
       }
 
       return await router.handle(req);
@@ -182,6 +224,7 @@ export function createApp(options: AppOptions = {}): App {
       app[method] = createMethodHandler(method);
     }
   });
+  app.init();
 
   return app;
 }

@@ -5,7 +5,7 @@
  * @author Sriram Sundar
  */
 
-import { ResponseContext } from "../core/app.ts";
+import { ResponseContext, RouteHandler } from "../core/app.ts";
 import { createRoute, Route } from "./route.ts";
 import { createLayer, Layer } from "./layer.ts";
 
@@ -31,6 +31,9 @@ export interface Router {
 
   /** Create a new route for the given path */
   route: (path: string) => Route;
+
+  /** Register middleware */
+  use: (fn: RouteHandler) => Router;
 
   /** Handle an incoming request by finding a matching route */
   handle: (req: Request) => Promise<Response>;
@@ -135,6 +138,22 @@ export function createRouter(options: RouterOptions = {}): Router {
     },
 
     /**
+     * Use middleware
+     * @param {RouteHandler} fn - The middleware function
+     * @returns {Router} This router for chaining
+     */
+    use(fn: RouteHandler): Router {
+      const layer = createLayer("/", fn);
+      layer.route = undefined;
+
+      (layer as unknown as Record<string, string>).name =
+        fn.name || "<anonymous middleware>";
+
+      stack.push(layer);
+      return router;
+    },
+
+    /**
      * Handle an incoming request by finding a matching route
      * @param {Request} req - The incoming request object
      * @returns {Promise<Response>} A response object
@@ -163,8 +182,21 @@ export function createRouter(options: RouterOptions = {}): Router {
             route = layer.route;
 
             if (!route) {
-              // TODO: handle non-route leyrs (like middleware)
-              continue;
+              try {
+                Promise.resolve(
+                  layer.handleRequest(req, responseContext, next)
+                ).catch((err) => {
+                  console.error("Middleware error:", err);
+                  resolve(
+                    new Response("Internal Server Error", { status: 500 })
+                  );
+                });
+                return;
+              } catch (err) {
+                console.error("Middleware error:", err);
+                resolve(new Response("Internal Server Error", { status: 500 }));
+                return;
+              }
             }
 
             if (route.methods[method]) {
@@ -182,7 +214,7 @@ export function createRouter(options: RouterOptions = {}): Router {
                     );
                   });
 
-                return; 
+                return;
               } catch (err) {
                 console.error("Route error:", err);
                 resolve(new Response("Internal Server Error", { status: 500 }));
